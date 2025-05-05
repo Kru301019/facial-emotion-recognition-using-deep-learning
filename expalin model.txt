@@ -1,0 +1,185 @@
+i am creating facial emotion recognition for my final year project
+i am using FER-2013 dataset
+these dataset has approx. 7000 images per emotion though there is exception with emotion of disgust 
+images are 48 * 48 pixel itioanlly 
+										DATA PREPROSSCING
+#load libraries 
+import pandas as pd 
+import numpy as np
+import tensorflow as tf
+import matplotlib.pyplot as plt 
+import cv2
+import os
+from sklearn.preprocessing import StandardScaler
+from sklearn.preprocessing import OneHotEncoder
+import joblib
+
+#sample to check 
+imgArray = cv2.imread("archive/train/angry/Training_3908.jpg")
+imgArray.shape
+plt.imshow(imgArray)
+
+#create dataset   each image is truned into 224 * 224 because we have to use it later in mobile net v2 ,what we are basically doing is turning image into it's array and label it with #whatever emotion it is
+def create_datasets(imgSize, dataset_path):
+   
+    emotion_labels = ['neutral', 'happy', 'angry', 'surprise', 'disgust', 'fear', 'sad']
+    X = []
+    y = []
+    for emotion in emotion_labels:
+        imges = os.path.join(dataset_path, emotion)              
+        for img in os.listdir(imges):
+            img_path = os.path.join(imges, img)
+            imgArry = cv2.imread(img_path)
+            imgArry = cv2.cvtColor(imgArry, cv2.COLOR_BGR2RGB)
+            resized_img = cv2.resize(imgArry, (imgSize, imgSize))
+            X.append(resized_img)
+            y.append(emotion_labels.index(emotion))
+            cv2.imwrite(img_path, resized_img)   #img is formated with new img of new size
+    X = np.array(X)
+    y = np.array(y)
+    return X, y    
+    
+imgSize = 224
+ 
+dataset_path_train = "archive/train/"
+dataset_path_test = "archive/test/"
+X_train, y_train = create_datasets(imgSize, dataset_path_train)
+X_test, y_test = create_datasets(imgSize, dataset_path_test)
+
+#we then normalize the dataset because array ranges from value 0 to 225.0
+X_train = X_train / 255.0
+X_test = X_test / 255.0
+
+#then we use one hot encoding for classify labels in better way
+def One_hot_encoding(y):
+    encoder = OneHotEncoder(sparse_output=False)
+    y = y.reshape(-1, 1)
+    return encoder.fit_transform(y)
+
+y_test = One_hot_encoding(y_test) 
+y_train = One_hot_encoding(y_train)  
+
+#we convert array to float32 to reduce size for training
+X_train = X_train.astype('float32')
+y_train = y_train.astype('float32')
+X_test = X_test.astype('float32')
+y_test = y_test.astype('float32')
+
+#we now have 6421 image ready along with is label for traing
+print(X_train.shape ,y_train.shape)
+output -(6421, 224, 224, 3) (6421, 7)
+
+# we make picke file and dump it so we dont have to data preprosssing everytime
+joblib.dump((X_train, y_train), 'emotion_recognition_data_train.pkl')
+joblib.dump((X_test, y_test), 'emotion_recognition_data_test.pkl')
+									TRAINING
+#import necessary library
+import tensorflow as tf
+from tensorflow import  keras
+from tensorflow.keras import layers
+import numpy as np
+import joblib
+from tensorflow.keras.callbacks import ReduceLROnPlateau
+
+#import pickle file that we did data preproccsing on
+X_train, y_train = joblib.load('emotion_recognition_data_train.pkl')
+X_test, y_test = joblib.load('emotion_recognition_data_test.pkl')
+
+
+#we will use pre trained model of mobilenet2 as transfer learning
+base_model  = tf.keras.applications.MobileNetV2(
+    input_shape=(224, 224, 3), 
+    include_top=False, 
+    weights="imagenet"
+)
+
+# Add custom layers on top of the MobileNetV2 base
+x = layers.GlobalAveragePooling2D()(base_output)  # Global average pooling
+x = layers.Dense(128, activation='relu')(x)       # Dense layer with 128 units                       # Dropout for regularization
+final_output = layers.Dense(7, activation='softmax')(x)  # Output layer for 10 classes
+
+model = keras.Model(inputs=base_input, outputs=final_output)
+for layer in base_model.layers:
+    layer.trainable = False
+# Compile the model
+model.compile(optimizer='adam', loss='categorical_crossentropy', metrics=['accuracy'])
+
+# Summary of the model
+model.summary()
+#we wont be traning base model all the way again
+
+ Total params: 2,422,855 (9.24 MB)
+ Trainable params: 164,871 (644.03 KB)
+ Non-trainable params: 2,257,984 (8.61 MB)
+
+
+
+lr_scheduler = ReduceLROnPlateau(
+    monitor='val_loss',  # Monitor validation loss
+    factor=0.5,          # Reduce learning rate by a factor of 0.5
+    patience=3,          # Wait for 3 epochs before reducing
+    min_lr=1e-6,         # Minimum learning rate
+    verbose=1
+)
+
+# Train the model
+history = model.fit(
+    X_train, 
+    y_train, 
+    epochs=20,  # Set the number of epochs
+    batch_size=32,  # Set the batch size
+    validation_data=(X_test, y_test),
+    callbacks=[lr_scheduler]  # Use the validation set
+)
+
+Epoch 1/20
+201/201 ━━━━━━━━━━━━━━━━━━━━ 53s 230ms/step - accuracy: 0.2807 - loss: 1.8638 - val_accuracy: 0.4286 - val_loss: 1.5488 - learning_rate: 0.0010
+Epoch 2/20
+201/201 ━━━━━━━━━━━━━━━━━━━━ 50s 246ms/step - accuracy: 0.4186 - loss: 1.5350 - val_accuracy: 0.5571 - val_loss: 1.4546 - learning_rate: 0.0010
+Epoch 3/20
+201/201 ━━━━━━━━━━━━━━━━━━━━ 49s 244ms/step - accuracy: 0.4696 - loss: 1.4080 - val_accuracy: 0.5143 - val_loss: 1.4951 - learning_rate: 0.0010
+Epoch 4/20
+201/201 ━━━━━━━━━━━━━━━━━━━━ 46s 227ms/step - accuracy: 0.4943 - loss: 1.3487 - val_accuracy: 0.4571 - val_loss: 1.4444 - learning_rate: 0.0010
+Epoch 5/20
+201/201 ━━━━━━━━━━━━━━━━━━━━ 49s 242ms/step - accuracy: 0.5376 - loss: 1.2698 - val_accuracy: 0.5571 - val_loss: 1.3803 - learning_rate: 0.0010
+Epoch 6/20
+201/201 ━━━━━━━━━━━━━━━━━━━━ 46s 229ms/step - accuracy: 0.5536 - loss: 1.2266 - val_accuracy: 0.5143 - val_loss: 1.4205 - learning_rate: 0.0010
+Epoch 7/20
+201/201 ━━━━━━━━━━━━━━━━━━━━ 48s 238ms/step - accuracy: 0.5824 - loss: 1.1415 - val_accuracy: 0.4571 - val_loss: 1.4377 - learning_rate: 0.0010
+Epoch 8/20
+201/201 ━━━━━━━━━━━━━━━━━━━━ 0s 249ms/step - accuracy: 0.5985 - loss: 1.1082
+Epoch 8: ReduceLROnPlateau reducing learning rate to 0.0005000000237487257.
+201/201 ━━━━━━━━━━━━━━━━━━━━ 51s 254ms/step - accuracy: 0.5985 - loss: 1.1083 - val_accuracy: 0.5143 - val_loss: 1.4264 - learning_rate: 0.0010
+Epoch 9/20
+201/201 ━━━━━━━━━━━━━━━━━━━━ 83s 415ms/step - accuracy: 0.6346 - loss: 1.0113 - val_accuracy: 0.5429 - val_loss: 1.3505 - learning_rate: 5.0000e-04
+Epoch 10/20
+201/201 ━━━━━━━━━━━━━━━━━━━━ 83s 412ms/step - accuracy: 0.6696 - loss: 0.9591 - val_accuracy: 0.5286 - val_loss: 1.3922 - learning_rate: 5.0000e-04
+Epoch 11/20
+201/201 ━━━━━━━━━━━━━━━━━━━━ 83s 413ms/step - accuracy: 0.6819 - loss: 0.9158 - val_accuracy: 0.5286 - val_loss: 1.3682 - learning_rate: 5.0000e-04
+Epoch 12/20
+...
+Epoch 19/20
+201/201 ━━━━━━━━━━━━━━━━━━━━ 52s 257ms/step - accuracy: 0.7685 - loss: 0.7199 - val_accuracy: 0.5143 - val_loss: 1.4233 - learning_rate: 6.2500e-05
+Epoch 20/20
+201/201 ━━━━━━━━━━━━━━━━━━━━ 53s 263ms/step - accuracy: 0.7765 - loss: 0.7251 - val_accuracy: 0.5143 - val_loss: 1.4163 - learning_rate: 6.2500e-05
+from sklearn.metrics import accuracy_score
+
+# Get model predictions on the test set
+y_pred = model.predict(X_test)
+
+# Convert the predictions from one-hot encoding to class indices
+y_pred_classes = np.argmax(y_pred, axis=1)
+y_true_classes = np.argmax(y_test, axis=1)
+
+# Calculate accuracy using sklearn's accuracy_score
+accuracy = accuracy_score(y_true_classes, y_pred_classes)
+
+print(f"Test Accuracy: {accuracy}")
+WARNING:tensorflow:5 out of the last 10 calls to <function TensorFlowTrainer.make_predict_function.<locals>.one_step_on_data_distributed at 0x0000027C1E6C87C0> triggered tf.function retracing. Tracing is expensive and the excessive number of tracings could be due to (1) creating @tf.function repeatedly in a loop, (2) passing tensors with different shapes, (3) passing Python objects instead of tensors. For (1), please define your @tf.function outside of the loop. For (2), @tf.function has reduce_retracing=True option that can avoid unnecessary retracing. For (3), please refer to https://www.tensorflow.org/guide/function#controlling_retracing and https://www.tensorflow.org/api_docs/python/tf/function for  more details.
+2/3 ━━━━━━━━━━━━━━━━━━━━ 0s 256ms/stepWARNING:tensorflow:6 out of the last 12 calls to <function TensorFlowTrainer.make_predict_function.<locals>.one_step_on_data_distributed at 0x0000027C1E6C87C0> triggered tf.function retracing. Tracing is expensive and the excessive number of tracings could be due to (1) creating @tf.function repeatedly in a loop, (2) passing tensors with different shapes, (3) passing Python objects instead of tensors. For (1), please define your @tf.function outside of the loop. For (2), @tf.function has reduce_retracing=True option that can avoid unnecessary retracing. For (3), please refer to https://www.tensorflow.org/guide/function#controlling_retracing and https://www.tensorflow.org/api_docs/python/tf/function for  more details.
+3/3 ━━━━━━━━━━━━━━━━━━━━ 3s 958ms/step
+Test Accuracy: 0.5142857142857142
+
+we are getting accuracy of 51 . it could be further improved if we keep adding more images to dataset but due to lack of compution power only 1000 images are included each emotioncompare to 7000 being present in datse
+
+
